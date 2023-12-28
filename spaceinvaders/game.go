@@ -1,112 +1,173 @@
 package spaceinvaders
 
 import (
+	"fmt"
+	"image/color"
 	"log"
 	"math/rand"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
+	"github.com/hajimehoshi/ebiten/v2/inpututil"
+	"github.com/hajimehoshi/ebiten/v2/text"
+	"golang.org/x/image/font"
+	"golang.org/x/image/font/opentype"
+
+	"github.com/chrisvaughn/spaceinvaders/assets"
 )
 
+type Mode int
+
 const (
-	ScreenWidth  = 1024
-	ScreenHeight = 768
+	ScreenWidth       = 1024
+	ScreenHeight      = 768
+	ModeTitle    Mode = iota
+	ModeGame
+	ModeGameOver
 )
 
 var (
+	psNormalFont font.Face
+)
+
+func init() {
+	tt, err := opentype.Parse(assets.Pressstart2pTTF)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	const dpi = 72
+	psNormalFont, err = opentype.NewFace(tt, &opentype.FaceOptions{
+		Size:    24,
+		DPI:     dpi,
+		Hinting: font.HintingVertical,
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
+type Game struct {
+	mode              Mode
 	background        *ebiten.Image
-	enemies           []*Enemy
+	enemies           [][]*Enemy
 	player            *Player
 	playerProjectiles []*Projectile
 	enemyProjectiles  []*Projectile
 	input             *Input
-	globalHeartImage  *ebiten.Image
-)
-
-type Game struct{}
+	heartImage        *ebiten.Image
+}
 
 func NewGame() (*Game, error) {
-	g := &Game{}
-	err := g.init()
+	g := &Game{
+		mode: ModeTitle,
+	}
+	g.Reset()
+
+	var err error
+	g.background, _, err = ebitenutil.NewImageFromFile("assets/space.png")
+	if err != nil {
+		return nil, err
+	}
+	g.heartImage, _, err = ebitenutil.NewImageFromFile("assets/heart.png")
 	if err != nil {
 		return nil, err
 	}
 	return g, nil
 }
 
-func (g *Game) init() error {
-	var err error
-	background, _, err = ebitenutil.NewImageFromFile("assets/space.png")
-	if err != nil {
-		return err
+func (g *Game) Reset() {
+	const startRows = 5
+	g.player = NewPlayer(ScreenWidth/2-playerWidth/2, ScreenHeight-120)
+	g.enemies = make([][]*Enemy, startRows)
+	for j := 0; j < startRows; j++ {
+		g.enemies[j] = make([]*Enemy, 0)
+		for i := 0; i < 10; i++ {
+			g.enemies[j] = append(g.enemies[j], NewEnemy(float64(10+(i*100)), float64(20+j*80)))
+		}
 	}
-	globalHeartImage, _, err = ebitenutil.NewImageFromFile("assets/heart.png")
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	for i := 0; i < 10; i++ {
-		enemies = append(enemies, NewEnemy(float64(10+(i*100)), 20))
-	}
-	player = NewPlayer(ScreenWidth/2, ScreenHeight-120)
-	input = NewInput()
-	return nil
+	g.enemyProjectiles = []*Projectile{}
+	g.playerProjectiles = []*Projectile{}
+	g.input = NewInput()
 }
 
 func (g *Game) Layout(outsideWidth, outsideHeight int) (screenWidth, screenHeight int) {
 	return ScreenWidth, ScreenHeight
 }
 
+func (g *Game) isKeyJustPressed() bool {
+	return inpututil.IsKeyJustPressed(ebiten.KeySpace)
+}
+
 func (g *Game) Update() error {
-	for _, enemy := range enemies {
-		enemy.Update()
-		if rand.Intn(100) < 2 {
-			if projectile := enemy.FireProjectile(); projectile != nil {
-				enemyProjectiles = append(enemyProjectiles, projectile)
+	switch g.mode {
+	case ModeTitle:
+		if g.isKeyJustPressed() {
+			g.mode = ModeGame
+		}
+	case ModeGame:
+		for _, enemyRow := range g.enemies {
+			for _, enemy := range enemyRow {
+				enemy.Update()
+				if rand.Intn(100) < 2 {
+					if projectile := enemy.FireProjectile(); projectile != nil {
+						g.enemyProjectiles = append(g.enemyProjectiles, projectile)
+					}
+				}
 			}
 		}
-	}
-
-	switch input.MoveShip() {
-	case MoveShipLeft:
-		player.x -= playerVelocity
-		if player.x < 0 {
-			player.x = 0
+		switch g.input.MoveShip() {
+		case MoveShipLeft:
+			g.player.x -= playerVelocity
+			if g.player.x < 0 {
+				g.player.x = 0
+			}
+		case MoveShipRight:
+			g.player.x += playerVelocity
+			if g.player.x > float64(ScreenWidth-g.player.image.Bounds().Dx()) {
+				g.player.x = float64(ScreenWidth - g.player.image.Bounds().Dx())
+			}
+		case NoMovement:
+			break
 		}
-	case MoveShipRight:
-		player.x += playerVelocity
-		if player.x > float64(ScreenWidth-player.image.Bounds().Dx()) {
-			player.x = float64(ScreenWidth - player.image.Bounds().Dx())
+
+		if g.input.Fire() {
+			if projectile := g.player.FireProjectile(); projectile != nil {
+				g.playerProjectiles = append(g.playerProjectiles, projectile)
+			}
 		}
-	case NoMovement:
-		break
-	}
 
-	if input.Fire() {
-		if projectile := player.FireProjectile(); projectile != nil {
-			playerProjectiles = append(playerProjectiles, projectile)
+		g.playerProjectiles = updateProjectiles(g.playerProjectiles)
+		g.enemyProjectiles = updateProjectiles(g.enemyProjectiles)
+
+		for i, playerProjectile := range g.playerProjectiles {
+			for ei, enemyRow := range g.enemies {
+				for j, enemy := range enemyRow {
+					if enemy.IsHit(playerProjectile.OnScreenRect()) {
+						g.playerProjectiles = append(g.playerProjectiles[:i], g.playerProjectiles[i+1:]...)
+						g.enemies[ei] = append(g.enemies[ei][:j], g.enemies[ei][j+1:]...)
+						break
+					}
+				}
+			}
 		}
-	}
-
-	playerProjectiles = updateProjectiles(playerProjectiles)
-	enemyProjectiles = updateProjectiles(enemyProjectiles)
-
-	for i, playerProjectile := range playerProjectiles {
-		for j, enemy := range enemies {
-			if enemy.IsHit(playerProjectile.OnScreenRect()) {
-				playerProjectiles = append(playerProjectiles[:i], playerProjectiles[i+1:]...)
-				enemies = append(enemies[:j], enemies[j+1:]...)
+		for i, enemyProjectile := range g.enemyProjectiles {
+			if g.player.IsHit(enemyProjectile.OnScreenRect()) {
+				g.enemyProjectiles = append(g.enemyProjectiles[:i], g.enemyProjectiles[i+1:]...)
+				g.player.lives -= 1
 				break
 			}
 		}
-	}
-
-	for i, enemyProjectile := range enemyProjectiles {
-		if player.IsHit(enemyProjectile.OnScreenRect()) {
-			enemyProjectiles = append(enemyProjectiles[:i], enemyProjectiles[i+1:]...)
-			player.lives -= 1
-			break
+		if g.player.lives < 1 {
+			g.mode = ModeGameOver
 		}
+	case ModeGameOver:
+		if g.isKeyJustPressed() {
+			g.mode = ModeTitle
+			g.Reset()
+		}
+	default:
+		panic("unhandled default case")
 	}
 
 	return nil
@@ -115,30 +176,48 @@ func (g *Game) Update() error {
 func (g *Game) Draw(screen *ebiten.Image) {
 	op := &ebiten.DrawImageOptions{}
 	op.GeoM.Translate(0, 0)
-	screen.DrawImage(background, op)
+	screen.DrawImage(g.background, op)
 
-	// draw lives remaining
-	for i := 0; i < player.lives; i++ {
-		op = &ebiten.DrawImageOptions{}
-		op.GeoM.Translate(float64(10+(i*40)), ScreenHeight-30)
-		screen.DrawImage(globalHeartImage, op)
-	}
+	switch g.mode {
+	case ModeTitle:
+		msg := "SPACE INVADERS"
+		x, _ := GetRenderedStringLengthInPixels(msg, psNormalFont)
+		text.Draw(screen, msg, psNormalFont, ScreenWidth/2-x/2, 250, color.White)
 
-	for _, enemy := range enemies {
-		op = &ebiten.DrawImageOptions{}
-		op.GeoM.Translate(enemy.x, enemy.y)
-		screen.DrawImage(enemy.image, op)
+		msg = "PRESS SPACE TO START"
+		x, _ = GetRenderedStringLengthInPixels(msg, psNormalFont)
+		text.Draw(screen, msg, psNormalFont, ScreenWidth/2-x/2, 350, color.White)
+	case ModeGame:
+		// draw lives remaining
+		for i := 0; i < g.player.lives; i++ {
+			op = &ebiten.DrawImageOptions{}
+			op.GeoM.Translate(float64(10+(i*40)), ScreenHeight-30)
+			screen.DrawImage(g.heartImage, op)
+		}
+
+		for _, enemyRow := range g.enemies {
+			for _, enemy := range enemyRow {
+				op = &ebiten.DrawImageOptions{}
+				op.GeoM.Translate(enemy.x, enemy.y)
+				screen.DrawImage(enemy.image, op)
+			}
+		}
+		for _, projectile := range append(g.playerProjectiles, g.enemyProjectiles...) {
+			op = &ebiten.DrawImageOptions{}
+			op.GeoM.Translate(projectile.x, projectile.y)
+			screen.DrawImage(projectile.image, op)
+		}
+	case ModeGameOver:
+		msg := "Game Over"
+		x, _ := GetRenderedStringLengthInPixels(msg, psNormalFont)
+		text.Draw(screen, msg, psNormalFont, ScreenWidth/2-x/2, 350, color.White)
 	}
 
 	op = &ebiten.DrawImageOptions{}
-	op.GeoM.Translate(player.x, player.y)
-	screen.DrawImage(player.image, op)
+	op.GeoM.Translate(g.player.x, g.player.y)
+	screen.DrawImage(g.player.image, op)
 
-	for _, projectile := range append(playerProjectiles, enemyProjectiles...) {
-		op = &ebiten.DrawImageOptions{}
-		op.GeoM.Translate(projectile.x, projectile.y)
-		screen.DrawImage(projectile.image, op)
-	}
+	ebitenutil.DebugPrint(screen, fmt.Sprintf("TPS: %0.2f", ebiten.ActualTPS()))
 }
 
 func updateProjectiles(projectiles []*Projectile) []*Projectile {
@@ -152,4 +231,13 @@ func updateProjectiles(projectiles []*Projectile) []*Projectile {
 		projectiles = projectiles[offScreenIndex+1:]
 	}
 	return projectiles
+}
+
+func GetRenderedStringLengthInPixels(str string, fnt font.Face) (int, int) {
+	// Measure the size of the rendered string
+	bounds, _ := font.BoundString(fnt, str)
+	width := (bounds.Max.X - bounds.Min.X).Ceil()
+	height := (bounds.Max.Y - bounds.Min.Y).Ceil()
+
+	return width, height
 }

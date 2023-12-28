@@ -12,6 +12,7 @@ import (
 const (
 	playerVelocity        = 5
 	minPlayerShotInterval = time.Millisecond * 500
+	playerWidth           = 80
 )
 
 var (
