@@ -127,8 +127,8 @@ func (g *Game) Update() error {
 			}
 		case MoveShipRight:
 			g.player.x += playerVelocity
-			if g.player.x > float64(ScreenWidth-g.player.image.Bounds().Dx()) {
-				g.player.x = float64(ScreenWidth - g.player.image.Bounds().Dx())
+			if g.player.x > float64(ScreenWidth-playerWidth) {
+				g.player.x = float64(ScreenWidth - playerWidth)
 			}
 		case NoMovement:
 			break

@@ -44,14 +44,14 @@ func NewPlayer(x, y float64) *Player {
 	}
 }
 
-func (s *Player) FireProjectile() *Projectile {
-	if time.Since(s.lastShotFired) < minPlayerShotInterval {
+func (p *Player) FireProjectile() *Projectile {
+	if time.Since(p.lastShotFired) < minPlayerShotInterval {
 		return nil
 	}
-	s.lastShotFired = time.Now()
+	p.lastShotFired = time.Now()
 	return NewProjectile(
-		s.x+float64(s.image.Bounds().Dx()/2),
-		s.y,
+		p.x+float64(playerWidth/2),
+		p.y,
 		projectileTypePlayer,
 	)
 }
