@@ -5,6 +5,7 @@ import (
 	"image/color"
 	"log"
 	"math/rand"
+	"os"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
@@ -12,8 +13,6 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/text"
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/opentype"
-
-	"github.com/chrisvaughn/spaceinvaders/assets"
 )
 
 type Mode int
@@ -31,7 +30,11 @@ var (
 )
 
 func init() {
-	tt, err := opentype.Parse(assets.Pressstart2pTTF)
+	ttfBytes, err := os.ReadFile("assets/pressstart2P.ttf")
+	if err != nil {
+		log.Fatal(err)
+	}
+	tt, err := opentype.Parse(ttfBytes)
 	if err != nil {
 		log.Fatal(err)
 	}
